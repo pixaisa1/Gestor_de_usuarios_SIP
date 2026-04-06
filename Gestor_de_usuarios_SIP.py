@@ -1,10 +1,3 @@
-#!/usr/bin/env python3
-"""
-asterisk_add_user.py
-Agrega usuarios SIP al archivo sip.conf de Asterisk de forma sencilla y automatica.
-Ejecuta sin argumentos para modo interactivo guiado.
-"""
-
 import os
 import sys
 import argparse
@@ -23,12 +16,8 @@ DEFAULT_USER_PARAMS = {
     "nat": "force_rport,comedia",
 }
 
-# ─────────────────────────────────────────────
 # Helpers de entrada interactiva
-# ─────────────────────────────────────────────
-
 def preguntar(mensaje: str, por_defecto: str = "") -> str:
-    """Pide un valor al usuario con un valor por defecto opcional."""
     if por_defecto:
         prompt = f"  {mensaje} [{por_defecto}]: "
     else:
@@ -42,17 +31,18 @@ def preguntar(mensaje: str, por_defecto: str = "") -> str:
         print("  [!] Este campo es obligatorio.")
 
 
-def preguntar_password(mensaje: str = "Contraseña SIP") -> str:
-    """Pide una contraseña ocultando la entrada."""
+def preguntar_password(mensaje: str = "Contraseña SIP", por_defecto: str = "") -> str:
+    hint = f" (Enter para no cambiarla)" if por_defecto else ""
     while True:
-        pwd = getpass.getpass(f"  {mensaje}: ")
+        pwd = getpass.getpass(f"  {mensaje}{hint}: ")
         if pwd:
             return pwd
+        if por_defecto:
+            return por_defecto
         print("  [!] La contraseña no puede estar vacía.")
 
 
 def preguntar_si_no(mensaje: str, por_defecto: bool = True) -> bool:
-    """Pregunta si/no."""
     opciones = "S/n" if por_defecto else "s/N"
     respuesta = input(f"  {mensaje} [{opciones}]: ").strip().lower()
     if not respuesta:
@@ -69,7 +59,7 @@ def separador(titulo: str = "") -> None:
     else:
         print(linea)
 
-
+# lógica principal
 def backup_conf(path: str) -> str:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     backup_path = f"{path}{BACKUP_SUFFIX}.{timestamp}"
@@ -93,6 +83,32 @@ def user_exists(path: str, username: str) -> bool:
         return bool(pattern.search(content))
     except FileNotFoundError:
         return False
+
+
+def get_user_params(path: str, username: str) -> dict:
+    """lee parámetros actuales de un usuario del sip.conf."""
+    try:
+        with open(path, "r") as f:
+            content = f.read()
+    except FileNotFoundError:
+        return {}
+
+    # Extrae el bloque del usuario
+    pattern = re.compile(
+        rf"^\[{re.escape(username)}\](.*?)(?=^\[|\Z)",
+        re.MULTILINE | re.DOTALL
+    )
+    match = pattern.search(content)
+    if not match:
+        return {}
+
+    params = {}
+    for line in match.group(1).strip().splitlines():
+        line = line.strip()
+        if "=" in line:
+            key, _, value = line.partition("=")
+            params[key.strip()] = value.strip()
+    return params
 
 
 def build_user_block(username: str, secret: str, **kwargs) -> str:
@@ -122,6 +138,40 @@ def add_user(path: str, username: str, secret: str, **kwargs) -> bool:
         sys.exit(1)
     except Exception as e:
         print(f"  [✗] Error al escribir en {path}: {e}")
+        sys.exit(1)
+
+
+def edit_user(path: str, username: str, secret: str, **kwargs) -> bool:
+    """edita usuario existente: elimina su bloque y lo reescribe con los nuevos datos"""
+    if not user_exists(path, username):
+        print(f"  [!] El usuario '{username}' no existe en {path}.")
+        return False
+
+    try:
+        with open(path, "r") as f:
+            content = f.read()
+
+        # Elimina el bloque actual del usuario
+        pattern = re.compile(
+            rf"\n?\[{re.escape(username)}\][^\[]*",
+            re.DOTALL
+        )
+        content_sin_usuario = pattern.sub("", content).strip() + "\n"
+
+        # Construye el nuevo bloque
+        new_block = build_user_block(username, secret, **kwargs)
+
+        with open(path, "w") as f:
+            f.write(content_sin_usuario)
+            f.write(f"\n{new_block}\n")
+
+        print(f"  [✓] Usuario '{username}' actualizado correctamente.")
+        return True
+    except PermissionError:
+        print(f"  [✗] Sin permisos para modificar {path}. Ejecuta con sudo.")
+        sys.exit(1)
+    except Exception as e:
+        print(f"  [✗] Error al editar {path}: {e}")
         sys.exit(1)
 
 
@@ -160,6 +210,8 @@ def list_users(path: str) -> None:
             print("  No hay usuarios SIP configurados.")
     except FileNotFoundError:
         print(f"  [!] Archivo {path} no encontrado.")
+        print("   Se sale de programa.")
+        
 
 
 def delete_user(path: str, username: str) -> bool:
@@ -184,54 +236,102 @@ def delete_user(path: str, username: str) -> bool:
         return True
     except PermissionError:
         print(f"  [✗] Sin permisos para modificar {path}. Ejecuta con sudo.")
+        print("   Se sale de programa.")
         sys.exit(1)
 
-
-# ─────────────────────────────────────────────
 # Modo interactivo
-# ─────────────────────────────────────────────
+
+def flujo_editar(conf_path: str) -> None:
+    separador("Editar usuario")
+    list_users(conf_path)
+
+    username = preguntar("Nombre del usuario a editar")
+
+    if not user_exists(conf_path, username):
+        print(f"  [!] El usuario '{username}' no existe.")
+        return
+
+    # Lee los valores actuales para usarlos como por defecto
+    actuales = get_user_params(conf_path, username)
+
+    print(f"\n  Editando '{username}' — Enter para conservar el valor actual.")
+    separador()
+
+    secret   = preguntar_password("Nueva contraseña SIP", por_defecto=actuales.get("secret", ""))
+    tipo     = preguntar("type",        actuales.get("type",        DEFAULT_USER_PARAMS["type"]))
+    context  = preguntar("context",     actuales.get("context",     DEFAULT_USER_PARAMS["context"]))
+    host     = preguntar("host",        actuales.get("host",        DEFAULT_USER_PARAMS["host"]))
+    nat      = preguntar("nat",         actuales.get("nat",         DEFAULT_USER_PARAMS["nat"]))
+    canreinv = preguntar("canreinvite", actuales.get("canreinvite", DEFAULT_USER_PARAMS["canreinvite"]))
+
+    separador("Resumen de cambios")
+    print(f"  Usuario     : {username}")
+    print(f"  type        : {tipo}")
+    print(f"  context     : {context}")
+    print(f"  host        : {host}")
+    print(f"  nat         : {nat}")
+    print(f"  canreinvite : {canreinv}")
+
+    if not preguntar_si_no("\n¿Confirmar y guardar cambios?"):
+        print("\n  Operación cancelada.\n")
+        return
+
+    if preguntar_si_no("¿Deseas crear un backup antes de guardar?"):
+        backup_conf(conf_path)
+
+    separador("Guardando")
+    edit_user(conf_path, username, secret,
+              type=tipo, context=context, host=host,
+              nat=nat, canreinvite=canreinv)
+    print()
+
 
 def modo_interactivo() -> None:
     print("\n╔══════════════════════════════════════════════╗")
     print("║      Gestor de usuarios SIP - Asterisk       ║")
+    print("║              Hecho por pixaisa1              ║")
+    print("║                     v1.0                     ║")
     print("╚══════════════════════════════════════════════╝")
 
-    # 1. Ruta del archivo
-    separador("Configuración del archivo")
+    separador("         Configuración del archivo")
     conf_path = preguntar("Ruta al sip.conf", SIP_CONF_PATH)
 
-    # 2. Menú de acción
-    separador("¿Qué quieres hacer?")
+    separador("            ¿Qué quieres hacer?")
     print("  1) Agregar usuario")
-    print("  2) Eliminar usuario")
-    print("  3) Listar usuarios")
-    print("  4) Salir")
+    print("  2) Editar usuario")
+    print("  3) Eliminar usuario")
+    print("  4) Listar usuarios")
+    print("  5) Salir")
 
     while True:
-        opcion = input("\n  Elige una opción [1-4]: ").strip()
-        if opcion in ("1", "2", "3", "4"):
+        opcion = input("\n  Elige una opción [1-5]: ").strip()
+        if opcion in ("1", "2", "3", "4", "5"):
             break
-        print("  [!] Opción no válida, elige entre 1 y 4.")
+        print("  [!] Opción no válida, elige entre 1 y 5.")
 
-    if opcion == "4":
-        print("\n  Hasta luego.\n")
+    if opcion == "5":
+        print("\n  ¡Adios!\n")
         sys.exit(0)
 
-    if opcion == "3":
+    if opcion == "4":
         separador("Usuarios existentes")
         list_users(conf_path)
         print()
         return
 
-    if opcion == "2":
+    if opcion == "3":
         separador("Eliminar usuario")
         list_users(conf_path)
         username = preguntar("Nombre del usuario a eliminar")
-        hacer_backup = preguntar_si_no("¿Crear backup antes de eliminar?")
-        if hacer_backup and os.path.exists(conf_path):
-            backup_conf(conf_path)
+        if preguntar_si_no("¿Crear backup antes de eliminar?"):
+            if os.path.exists(conf_path):
+                backup_conf(conf_path)
         delete_user(conf_path, username)
         print()
+        return
+
+    if opcion == "2":
+        flujo_editar(conf_path)
         return
 
     # opcion == "1" → Agregar usuario
@@ -247,7 +347,6 @@ def modo_interactivo() -> None:
     nat      = preguntar("nat",         DEFAULT_USER_PARAMS["nat"])
     canreinv = preguntar("canreinvite", DEFAULT_USER_PARAMS["canreinvite"])
 
-    # Resumen antes de confirmar
     separador("Resumen")
     print(f"  Archivo     : {conf_path}")
     print(f"  Usuario     : {username}")
@@ -261,22 +360,19 @@ def modo_interactivo() -> None:
         print("\n  Operación cancelada.\n")
         return
 
-    hacer_backup = preguntar_si_no("¿Crear backup antes de guardar?")
+    if preguntar_si_no("¿Deseas crear un backup antes de guardar?"):
+        if os.path.exists(conf_path):
+            backup_conf(conf_path)
 
     separador("Guardando")
     ensure_general_section(conf_path)
-    if hacer_backup and os.path.exists(conf_path):
-        backup_conf(conf_path)
-
     add_user(conf_path, username, secret,
              type=tipo, context=context, host=host,
              nat=nat, canreinvite=canreinv)
     print()
 
 
-# ─────────────────────────────────────────────
-# Modo CLI (con argumentos)
-# ─────────────────────────────────────────────
+# Modo avanzado (cli)
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -296,6 +392,17 @@ def parse_args():
     add_p.add_argument("--conf",        default=SIP_CONF_PATH)
     add_p.add_argument("--no-backup",   action="store_true")
 
+    edit_p = subparsers.add_parser("edit", help="Editar un usuario SIP existente")
+    edit_p.add_argument("username")
+    edit_p.add_argument("secret")
+    edit_p.add_argument("--context",     default=None)
+    edit_p.add_argument("--type",        default=None)
+    edit_p.add_argument("--host",        default=None)
+    edit_p.add_argument("--nat",         default=None)
+    edit_p.add_argument("--canreinvite", default=None)
+    edit_p.add_argument("--conf",        default=SIP_CONF_PATH)
+    edit_p.add_argument("--no-backup",   action="store_true")
+
     list_p = subparsers.add_parser("list", help="Listar usuarios SIP")
     list_p.add_argument("--conf", default=SIP_CONF_PATH)
 
@@ -308,7 +415,6 @@ def parse_args():
 
 
 def main():
-    # Sin argumentos → modo interactivo completo
     if len(sys.argv) == 1:
         modo_interactivo()
         return
@@ -322,6 +428,20 @@ def main():
         add_user(args.conf, args.username, args.secret,
                  type=args.type, context=args.context,
                  host=args.host, canreinvite=args.canreinvite, nat=args.nat)
+
+    elif args.command == "edit":
+        # Para CLI, lee los actuales y sobreescribe solo los que se pasen
+        actuales = get_user_params(args.conf, args.username)
+        params = {
+            "type":        args.type        or actuales.get("type",        DEFAULT_USER_PARAMS["type"]),
+            "context":     args.context     or actuales.get("context",     DEFAULT_USER_PARAMS["context"]),
+            "host":        args.host        or actuales.get("host",        DEFAULT_USER_PARAMS["host"]),
+            "nat":         args.nat         or actuales.get("nat",         DEFAULT_USER_PARAMS["nat"]),
+            "canreinvite": args.canreinvite or actuales.get("canreinvite", DEFAULT_USER_PARAMS["canreinvite"]),
+        }
+        if not args.no_backup and os.path.exists(args.conf):
+            backup_conf(args.conf)
+        edit_user(args.conf, args.username, args.secret, **params)
 
     elif args.command == "list":
         list_users(args.conf)
