@@ -25,10 +25,15 @@ Este script en Python es una herramienta diseñada para facilitar la administrac
 ## Instalación
 
 1. Descarga el script `asterisk_add_user.py` en tu servidor Asterisk.
+
+```bash
+wget https://raw.githubusercontent.com/pixaisa1/Gestor_de_usuarios_SIP/main/Gestor_de_usuarios_SIP
+```
+
 2. Asegúrate de tener permisos de ejecución:
 
 ```bash
-chmod +x asterisk_add_user.py
+chmod +x Gestor_de_usuarios_SIP
 ```
 
 ---
@@ -40,7 +45,7 @@ chmod +x asterisk_add_user.py
 Simplemente ejecuta el script sin argumentos para entrar en el menú asistido:
 
 ```bash
-sudo python3 asterisk_add_user.py
+sudo python3 Gestor_de_usuarios_SIP.py
 ```
 
 ### 2. Modo Línea de Comandos (CLI)
@@ -49,22 +54,22 @@ El script soporta varios comandos para operaciones rápidas:
 
 **Añadir un usuario:**
 ```bash
-sudo python3 asterisk_add_user.py add "usuario1" "password123" --context "ventas"
+sudo python3 Gestor_de_usuarios_SIP.py add "usuario1" "password123" --context "ventas"
 ```
 
 **Editar un usuario existente:**
 ```bash
-sudo python3 asterisk_add_user.py edit "usuario1" "nueva_password" --nat "yes"
+sudo python3 Gestor_de_usuarios_SIP.py edit "usuario1" "nueva_password" --nat "yes"
 ```
 
 **Listar todos los usuarios:**
 ```bash
-python3 asterisk_add_user.py list
+python3 Gestor_de_usuarios_SIP.py list
 ```
 
 **Eliminar un usuario:**
 ```bash
-sudo python3 asterisk_add_user.py delete "usuario1"
+sudo python3 Gestor_de_usuarios_SIP.py delete "usuario1"
 ```
 
 ---
