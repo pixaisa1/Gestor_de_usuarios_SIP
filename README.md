@@ -91,6 +91,7 @@ El script utiliza los siguientes valores por defecto para los nuevos usuarios, a
 ## Autor
 
 **pixaisa1**
+**Vlad0n4ik**
 
 ---
 
