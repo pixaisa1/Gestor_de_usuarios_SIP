@@ -27,13 +27,13 @@ Este script en Python es una herramienta diseñada para facilitar la administrac
 1. Descarga el script `asterisk_add_user.py` en tu servidor Asterisk.
 
 ```bash
-wget https://raw.githubusercontent.com/pixaisa1/Gestor_de_usuarios_SIP/main/Gestor_de_usuarios_SIP
+wget https://raw.githubusercontent.com/pixaisa1/Gestor_de_usuarios_SIP/main/Gestor_de_usuarios_SIP.py
 ```
 
 2. Asegúrate de tener permisos de ejecución:
 
 ```bash
-chmod +x Gestor_de_usuarios_SIP
+chmod +x Gestor_de_usuarios_SIP.py
 ```
 
 ---
