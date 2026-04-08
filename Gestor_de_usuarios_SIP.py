@@ -194,7 +194,7 @@ def modo_interactivo():
     print("\n╔══════════════════════════════════════════════╗")
     print("║      Gestor de usuarios SIP/PJSIP Asterisk   ║")
     print("║              Hecho por pixaisa1              ║")
-    print("║                    v1.1                      ║")
+    print("║                   v1.1.2                     ║")
     print("╚══════════════════════════════════════════════╝")
 
     separador("Selección de Protocolo")
