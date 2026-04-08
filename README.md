@@ -1,4 +1,4 @@
-# Gestor de Usuarios SIP - Asterisk
+# Gestor de Usuarios SIP - Asterisk (ver 1.1.2)
 
 Este script en Python es una herramienta diseñada para facilitar la administración de extensiones en el archivo de configuración `sip.conf` de Asterisk. Permite realizar operaciones CRUD (Crear, Leer, Actualizar y Borrar) de forma segura y automatizada, ofreciendo tanto una interfaz interactiva como una interfaz de línea de comandos (CLI).
 
