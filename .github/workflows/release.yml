@@ -3,11 +3,11 @@ on:
   workflow_dispatch:
     inputs:
       tag_name:
-        description: 'v2.2'
+        description: 'Nombre de tag:'
         required: true
         type: string
       release_name:
-        description: 'v2.2'
+        description: 'Nombre de la release:'
         required: true
         type: string
 jobs:
