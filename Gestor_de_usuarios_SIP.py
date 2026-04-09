@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
+
 import os
 import sys
 import argparse
 import re
 import getpass
+import subprocess
 from datetime import datetime
 
-# ─────────────────────────────────────────────
 # CONFIGURACIÓN Y CONSTANTES
-# ─────────────────────────────────────────────
 SIP_CONF_PATH = "/etc/asterisk/sip.conf"
 PJSIP_CONF_PATH = "/etc/asterisk/pjsip.conf"
 BACKUP_SUFFIX = ".bak"
@@ -65,7 +65,19 @@ def separador(titulo: str = "") -> None:
     else:
         print(linea)
 
-# LÓGICA DE ARCHIVOS
+# LÓGICA DE ARCHIVOS Y SISTEMA
+def reload_asterisk(protocol: str) -> None:
+    """Ejecuta el comando de recarga en Asterisk según el protocolo."""
+    cmd = "pjsip reload" if protocol == "pjsip" else "sip reload"
+    print(f"\n  [i] Aplicando cambios en Asterisk (sudo asterisk -rx '{cmd}')...")
+    try: 
+        subprocess.run(["sudo", "asterisk", "-rx", cmd], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        print("  [✓] Asterisk recargado correctamente.")
+    except subprocess.CalledProcessError:
+        print("  [✗] Aviso: Hubo un problema al recargar Asterisk. Es posible que el servicio no esté corriendo.")
+    except FileNotFoundError:
+        print("  [✗] Aviso: No se encontró el comando 'asterisk' o 'sudo'. Recarga manual necesaria.")
+
 def backup_conf(path: str) -> str:
     if not os.path.exists(path):
         return ""
@@ -114,28 +126,24 @@ def get_user_params(path: str, username: str, protocol: str) -> dict:
 
     params = {}
     
-    # Busca el bloque principal (endpoint o sip friend)
-    ep = re.search(rf"^\[{re.escape(username)}\](.*?)(?=^\[|\Z)", content, re.MULTILINE | re.DOTALL)
-    if ep:
-        for line in ep.group(1).strip().splitlines():
-            if "=" in line:
-                k, _, v = line.partition("=")
-                params[k.strip()] = v.strip()
-
-    # Si es PJSIP, busca la contraseña en el bloque auth
+    sections_to_search = [username]
     if protocol == "pjsip":
-        auth = re.search(rf"^\[{re.escape(username)}-auth\](.*?)(?=^\[|\Z)", content, re.MULTILINE | re.DOTALL)
-        if auth:
-            for line in auth.group(1).strip().splitlines():
+        sections_to_search.extend([f"{username}-auth", f"{username}-aor", f"{username}-aors"])
+        
+    for section in sections_to_search:
+        matches = re.finditer(rf"^\[{re.escape(section)}\](.*?)(?=^\[|\Z)", content, re.MULTILINE | re.DOTALL)
+        for match in matches:
+            for line in match.group(1).strip().splitlines():
                 if "=" in line:
                     k, _, v = line.partition("=")
-                    if k.strip() == "password":
-                        params["password"] = v.strip()
-    else:
-        # Si es SIP, mapea secret a password para unificar
-        if "secret" in params:
-            params["password"] = params["secret"]
-
+                    k, v = k.strip(), v.strip()
+                    if k == "password" or k == "secret":
+                        params["password"] = v
+                    elif k in ["type", "context", "host", "nat", "canreinvite", "allow", "disallow"]:
+                        if k == "type" and v in ["auth", "aor"]:
+                            continue
+                        if k not in params:
+                            params[k] = v
     return params
 
 def build_user_blocks(username: str, password: str, protocol: str, **kwargs) -> str:
@@ -154,9 +162,9 @@ def build_user_blocks(username: str, password: str, protocol: str, **kwargs) -> 
         allow = params.get("allow", DEFAULT_PARAMS["pjsip"]["allow"])
         return (
             f"[{username}]\ntype=endpoint\ncontext={context}\n"
-            f"disallow={disallow}\nallow={allow}\nauth={username}-auth\naors={username}-aors\n\n"
-            f"[{username}-auth]\ntype=auth\nauth_type=userpass\nusername={username}\npassword={password}\n\n"
-            f"[{username}-aors]\ntype=aor\nmax_contacts=1\n"
+            f"disallow={disallow}\nallow={allow}\nauth={username}\naors={username}\n\n"
+            f"[{username}]\ntype=auth\nauth_type=userpass\nusername={username}\npassword={password}\n\n"
+            f"[{username}]\ntype=aor\nmax_contacts=1\n"
         )
 
 def remove_user_blocks(path: str, username: str, protocol: str) -> None:
@@ -166,7 +174,7 @@ def remove_user_blocks(path: str, username: str, protocol: str) -> None:
 
     sections = [username]
     if protocol == "pjsip":
-        sections.extend([f"{username}-auth", f"{username}-aors"])
+        sections.extend([f"{username}-auth", f"{username}-aor", f"{username}-aors"])
 
     for section in sections:
         pattern = re.compile(rf"\n?\[{re.escape(section)}\][^\[]*", re.DOTALL)
@@ -180,7 +188,17 @@ def list_users(path: str) -> None:
     try:
         with open(path, "r") as f:
             sections = pattern.findall(f.read())
-        users = [s for s in sections if s.lower() != "general" and not s.endswith("-auth") and not s.endswith("-aors")]
+            
+        seen = set()
+        users = []
+        for s in sections:
+            s_lower = s.lower()
+            if s_lower == "general" or s.endswith("-auth") or s.endswith("-aor") or s.endswith("-aors"):
+                continue
+            if s not in seen:
+                seen.add(s)
+                users.append(s)
+                
         if users:
             for u in users:
                 print(f"    - {u}")
@@ -189,12 +207,14 @@ def list_users(path: str) -> None:
     except FileNotFoundError:
         print(f"  [!] Archivo {path} no encontrado.")
 
+# ─────────────────────────────────────────────
 # MODO INTERACTIVO
+# ─────────────────────────────────────────────
 def modo_interactivo():
     print("\n╔══════════════════════════════════════════════╗")
     print("║      Gestor de usuarios SIP/PJSIP Asterisk   ║")
     print("║              Hecho por pixaisa1              ║")
-    print("║                   v1.1.2                     ║")
+    print("║                   v1.2.1                     ║")
     print("╚══════════════════════════════════════════════╝")
 
     separador("Selección de Protocolo")
@@ -241,6 +261,7 @@ def modo_interactivo():
             try:
                 remove_user_blocks(conf_path, username, protocolo)
                 print(f"  [✓] Usuario '{username}' eliminado correctamente.")
+                reload_asterisk(protocolo)
             except PermissionError:
                 print(f"  [✗] Sin permisos. Ejecuta con sudo.")
 
@@ -286,10 +307,10 @@ def modo_interactivo():
                 with open(conf_path, "a") as f:
                     f.write(f"\n{bloque}\n")
                 print(f"  [✓] Usuario '{username}' guardado correctamente.")
+                reload_asterisk(protocolo)
             except PermissionError:
                 print(f"  [✗] Sin permisos para modificar el archivo. Ejecuta con sudo.")
-
-# MODO CLI
+# MODO CLI (Avanzado)
 def parse_args():
     parser = argparse.ArgumentParser(description="Gestiona usuarios SIP/PJSIP en Asterisk.")
     parser.add_argument("--protocol", choices=["sip", "pjsip"], default="pjsip", help="Protocolo a usar (por defecto pjsip)")
@@ -319,7 +340,6 @@ def main():
 
     args, unknown = parse_args()
     
-    # Ajusta rutas por defecto según protocolo elegido en CLI
     conf_path = args.conf if args.conf else (PJSIP_CONF_PATH if args.protocol == "pjsip" else SIP_CONF_PATH)
 
     if args.command == "list":
@@ -329,17 +349,16 @@ def main():
         backup_conf(conf_path)
         remove_user_blocks(conf_path, args.username, args.protocol)
         print(f"Usuario {args.username} eliminado.")
+        reload_asterisk(args.protocol)
 
     elif args.command in ("add", "edit"):
         ensure_file_structure(conf_path, args.protocol)
         backup_conf(conf_path)
         
-        # Recoge parámetros actuales si es edición
         params = DEFAULT_PARAMS[args.protocol].copy()
         actuales = get_user_params(conf_path, args.username, args.protocol) if args.command == "edit" else {}
         params.update(actuales)
         
-        # Parsear argumentos extra manuales (como --context x)
         for i in range(len(unknown)):
             if unknown[i].startswith("--"):
                 key = unknown[i].strip("-")
@@ -355,6 +374,7 @@ def main():
         with open(conf_path, "a") as f:
             f.write(f"\n{bloque}\n")
         print(f"Usuario {args.username} procesado en {conf_path}.")
+        reload_asterisk(args.protocol)
 
 if __name__ == "__main__":
     main()
