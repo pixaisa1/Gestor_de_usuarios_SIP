@@ -27,7 +27,7 @@ Una herramienta potente y versátil escrita en Python para la administración de
 Dale permisos de ejecución al script:
 
 ```bash
-chmod +x asterisk_manager.py
+chmod +x Gestor_de_usuarios_SIP.py
 ```
 
 ### 1. Modo Interactivo (Menús)
@@ -35,7 +35,7 @@ chmod +x asterisk_manager.py
 Simplemente ejecuta el script sin parámetros para entrar en la interfaz visual:
 
 ```bash
-sudo ./asterisk_manager.py
+sudo ./Gestor_de_usuarios_SIP.py
 ```
 
 ### 2. Modo CLI (Comandos Directos)
@@ -44,22 +44,22 @@ Ideal para automatizaciones o usuarios avanzados:
 
 - **Añadir Usuario:**
   ```bash
-  sudo ./asterisk_manager.py add-user 101 Secreto123 --protocol pjsip
+  sudo ./Gestor_de_usuarios_SIP.py add-user 101 Secreto123 --protocol pjsip
   ```
 
 - **Asignar Extensión:**
   ```bash
-  sudo ./asterisk_manager.py add-exten 101 usuario101 --context from-internal
+  sudo ./Gestor_de_usuarios_SIP.py add-exten 101 usuario101 --context from-internal
   ```
 
 - **Listar Usuarios:**
   ```bash
-  sudo ./asterisk_manager.py list-users --protocol pjsip
+  sudo ./Gestor_de_usuarios_SIP.py list-users --protocol pjsip
   ```
 
 - **Eliminar Extensión:**
   ```bash
-  sudo ./asterisk_manager.py del-exten 101
+  sudo ./Gestor_de_usuarios_SIP.py del-exten 101
   ```
 
 ---
