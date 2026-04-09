@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-
 import os
 import sys
 import argparse
@@ -8,7 +7,9 @@ import getpass
 import subprocess
 from datetime import datetime
 
+# ─────────────────────────────────────────────
 # CONFIGURACIÓN Y CONSTANTES
+# ─────────────────────────────────────────────
 SIP_CONF_PATH = "/etc/asterisk/sip.conf"
 PJSIP_CONF_PATH = "/etc/asterisk/pjsip.conf"
 EXTENSIONS_CONF_PATH = "/etc/asterisk/extensions.conf"
@@ -29,7 +30,9 @@ DEFAULT_PARAMS = {
     }
 }
 
+# ─────────────────────────────────────────────
 # HELPERS DE ENTRADA INTERACTIVA
+# ─────────────────────────────────────────────
 def preguntar(mensaje: str, por_defecto: str = "") -> str:
     prompt = f"  {mensaje} [{por_defecto}]: " if por_defecto else f"  {mensaje}: "
     while True:
@@ -66,7 +69,9 @@ def separador(titulo: str = "") -> None:
     else:
         print(linea)
 
+# ─────────────────────────────────────────────
 # LÓGICA DE SISTEMA Y BACKUP
+# ─────────────────────────────────────────────
 def reload_asterisk(modulo: str) -> None:
     """Ejecuta el comando de recarga en Asterisk."""
     if modulo == "pjsip": cmd = "pjsip reload"
@@ -163,7 +168,8 @@ def remove_user_blocks(path: str, username: str, protocol: str) -> None:
         content = re.sub(rf"\n?\[{re.escape(section)}\][^\[]*", "", content, flags=re.DOTALL)
     with open(path, "w") as f: f.write(content.strip() + "\n")
 
-def list_users(path: str) -> None:
+def list_users(path: str, protocol: str) -> None:
+    """Lista los usuarios en formato tabla con su número y contexto."""
     try:
         with open(path, "r") as f: sections = re.findall(r"^\[([^\]]+)\]", f.read(), re.MULTILINE)
         seen = set()
@@ -173,11 +179,21 @@ def list_users(path: str) -> None:
             if s_lower == "general" or s.endswith(("-auth", "-aor", "-aors")): continue
             if s not in seen:
                 seen.add(s)
-                users.append(s)
+                # Obtenemos los parámetros del usuario para sacar su contexto
+                params = get_user_params(path, s, protocol)
+                ctx = params.get("context", "desconocido")
+                users.append((s, ctx))
+                
         if users:
-            for u in users: print(f"    - {u}")
-        else: print("  No hay usuarios configurados.")
-    except FileNotFoundError: print(f"  [!] Archivo {path} no encontrado.")
+            print(f"    {'USUARIO / NÚMERO'.ljust(20)} │ {'GRUPO (CONTEXTO)'.ljust(25)}")
+            print(f"    {'─'*20}─┼─{'─'*25}")
+            for u, ctx in users:
+                print(f"    {u.ljust(20)} │ {ctx.ljust(25)}")
+            print() # Salto de línea por estética
+        else:
+            print("  No hay usuarios configurados.")
+    except FileNotFoundError:
+        print(f"  [!] Archivo {path} no encontrado.")
 
 # ─────────────────────────────────────────────
 # LÓGICA DE EXTENSIONES (DIALPLAN)
@@ -218,14 +234,14 @@ def list_extensions(path: str) -> None:
             if line.startswith("[") and line.endswith("]"):
                 current_ctx = line
             elif line.startswith("exten =>") and ",1,Dial" in line:
-                # Extrae de forma limpia: exten => 100,1,Dial(PJSIP/belen,30) -> 100 -> PJSIP/belen
                 try:
                     ext = line.split("=>")[1].split(",")[0].strip()
                     dest = line.split("Dial(")[1].split(",")[0].strip()
-                    print(f"    {current_ctx} Ext: {ext} -> Llama a: {dest}")
+                    print(f"    {current_ctx.ljust(20)} Ext: {ext.ljust(8)} -> Llama a: {dest}")
                     count += 1
                 except IndexError: pass
         if count == 0: print("  No hay extensiones configuradas de forma explícita.")
+        print()
     except FileNotFoundError: print(f"  [!] Archivo {path} no encontrado.")
 
 # ─────────────────────────────────────────────
@@ -257,10 +273,10 @@ def menu_usuarios():
         if opcion == "5": return
         elif opcion == "4":
             separador("Usuarios existentes")
-            list_users(conf_path)
+            list_users(conf_path, protocolo)
         elif opcion == "3":
             separador("Eliminar usuario")
-            list_users(conf_path)
+            list_users(conf_path, protocolo)
             username = preguntar("Nombre del usuario a eliminar")
             if not user_exists(conf_path, username):
                 print(f"  [!] El usuario '{username}' no existe.")
@@ -273,7 +289,7 @@ def menu_usuarios():
             except PermissionError: print(f"  [✗] Sin permisos. Usa sudo.")
         elif opcion in ("1", "2"):
             separador("Editar usuario" if opcion == "2" else "Agregar usuario")
-            if opcion == "2": list_users(conf_path)
+            if opcion == "2": list_users(conf_path, protocolo)
             username = preguntar("Nombre de usuario")
             
             if opcion == "2" and not user_exists(conf_path, username):
@@ -343,7 +359,7 @@ def menu_extensiones():
 
 def modo_interactivo():
     print("\n╔══════════════════════════════════════════════╗")
-    print("║      Gestor de usuario de Asterisk v2.0      ║")
+    print("║      Gestor Integral de Asterisk v2.2        ║")
     print("║              Hecho por pixaisa1              ║")
     print("╚══════════════════════════════════════════════╝")
 
@@ -365,14 +381,120 @@ def modo_interactivo():
         else:
             print("  [!] Opción no válida.")
 
+# ─────────────────────────────────────────────
 # MODO CLI (Avanzado)
-# Mantenido y simplificado para soporte básico por línea de comandos
+# ─────────────────────────────────────────────
+def parse_args():
+    # Argumentos globales
+    base_parser = argparse.ArgumentParser(add_help=False)
+    base_parser.add_argument("--no-backup", action="store_true", help="No crear copia de seguridad (.bak)")
+    base_parser.add_argument("--no-reload", action="store_true", help="No recargar Asterisk tras guardar")
+
+    parser = argparse.ArgumentParser(description="Gestor Integral de Asterisk - Modo CLI")
+    subparsers = parser.add_subparsers(dest="command")
+
+    # Comandos de Usuarios
+    u_add = subparsers.add_parser("add-user", parents=[base_parser], help="Añadir un usuario SIP/PJSIP")
+    u_add.add_argument("username")
+    u_add.add_argument("password")
+    u_add.add_argument("--protocol", choices=["sip", "pjsip"], default="pjsip")
+
+    u_edit = subparsers.add_parser("edit-user", parents=[base_parser], help="Editar un usuario existente")
+    u_edit.add_argument("username")
+    u_edit.add_argument("--password", default=None)
+    u_edit.add_argument("--protocol", choices=["sip", "pjsip"], default="pjsip")
+
+    u_del = subparsers.add_parser("del-user", parents=[base_parser], help="Eliminar un usuario")
+    u_del.add_argument("username")
+    u_del.add_argument("--protocol", choices=["sip", "pjsip"], default="pjsip")
+
+    u_list = subparsers.add_parser("list-users", help="Listar usuarios")
+    u_list.add_argument("--protocol", choices=["sip", "pjsip"], default="pjsip")
+
+    # Comandos de Extensiones
+    e_add = subparsers.add_parser("add-exten", parents=[base_parser], help="Asignar extensión a un usuario")
+    e_add.add_argument("exten", help="Número de extensión (ej. 100)")
+    e_add.add_argument("endpoint", help="Nombre del usuario a llamar")
+    e_add.add_argument("--protocol", choices=["sip", "pjsip"], default="pjsip")
+    e_add.add_argument("--context", default="from-internal", help="Contexto de dialplan")
+
+    e_del = subparsers.add_parser("del-exten", parents=[base_parser], help="Eliminar una extensión")
+    e_del.add_argument("exten")
+
+    e_list = subparsers.add_parser("list-extens", help="Listar extensiones configuradas")
+
+    return parser.parse_known_args()
+
 def main():
     if len(sys.argv) == 1:
         modo_interactivo()
-    else:
-        print("Modo CLI desactivado en v3.0 para centrarse en la interfaz unificada interactiva.")
-        print("Ejecuta el script sin argumentos para usar los menús.")
+        return
+
+    args, unknown = parse_args()
+    if not args.command:
+        modo_interactivo()
+        return
+
+    # Bloque de comandos para Usuarios
+    if args.command in ("add-user", "edit-user", "del-user", "list-users"):
+        conf_path = PJSIP_CONF_PATH if args.protocol == "pjsip" else SIP_CONF_PATH
+
+        if args.command == "list-users":
+            list_users(conf_path, args.protocol)
+            return
+
+        if args.command == "del-user":
+            if not args.no_backup: backup_conf(conf_path)
+            remove_user_blocks(conf_path, args.username, args.protocol)
+            print(f"  [✓] Usuario {args.username} eliminado correctamente.")
+            if not args.no_reload: reload_asterisk(args.protocol)
+            return
+
+        # Para Add o Edit
+        ensure_file_structure(conf_path, args.protocol)
+        if not args.no_backup: backup_conf(conf_path)
+
+        params = DEFAULT_PARAMS[args.protocol].copy()
+        actuales = get_user_params(conf_path, args.username, args.protocol) if args.command == "edit-user" else {}
+        params.update(actuales)
+
+        # Captura argumentos extra avanzados por consola (ej. --context ventas)
+        for i in range(len(unknown)):
+            if unknown[i].startswith("--"):
+                k = unknown[i].strip("-")
+                if i + 1 < len(unknown) and not unknown[i+1].startswith("--"):
+                    params[k] = unknown[i+1]
+
+        pwd = args.password if hasattr(args, "password") and args.password else actuales.get("password", "1234")
+
+        if args.command == "edit-user":
+            remove_user_blocks(conf_path, args.username, args.protocol)
+
+        bloque = build_user_blocks(args.username, pwd, args.protocol, **params)
+        with open(conf_path, "a") as f: f.write(f"\n{bloque}\n")
+        print(f"  [✓] Usuario {args.username} guardado exitosamente.")
+        if not args.no_reload: reload_asterisk(args.protocol)
+
+    # Bloque de comandos para Extensiones
+    elif args.command in ("add-exten", "del-exten", "list-extens"):
+        conf_path = EXTENSIONS_CONF_PATH
+
+        if args.command == "list-extens":
+            list_extensions(conf_path)
+            return
+
+        if args.command == "del-exten":
+            if not args.no_backup: backup_conf(conf_path)
+            remove_extension(conf_path, args.exten)
+            print(f"  [✓] Extensión {args.exten} eliminada.")
+            if not args.no_reload: reload_asterisk("dialplan")
+            return
+
+        # Para Add Exten
+        if not args.no_backup: backup_conf(conf_path)
+        add_extension(conf_path, args.context, args.exten, args.endpoint, args.protocol)
+        print(f"  [✓] Extensión {args.exten} asignada hacia {args.protocol.upper()}/{args.endpoint}.")
+        if not args.no_reload: reload_asterisk("dialplan")
 
 if __name__ == "__main__":
     main()
