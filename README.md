@@ -4,7 +4,7 @@ Una herramienta potente y versátil escrita en Python para la administración de
 
 ---
 
-## 🚀 Características Principales
+## Características Principales
 
 - **Soporte Dual:** Maneja tanto el stack moderno `chan_pjsip` como el antiguo `chan_sip`.
 - **Gestión de Dialplan:** Crea, edita y elimina extensiones en `extensions.conf` de forma automática.
@@ -14,7 +14,7 @@ Una herramienta potente y versátil escrita en Python para la administración de
 
 ---
 
-## 📋 Requisitos
+## Requisitos
 
 1. Asterisk instalado y configurado en el sistema.
 2. Python 3.x.
@@ -22,7 +22,7 @@ Una herramienta potente y versátil escrita en Python para la administración de
 
 ---
 
-## 🛠️ Instalación y Uso
+## Instalación y Uso
 
 Dale permisos de ejecución al script:
 
@@ -64,7 +64,7 @@ Ideal para automatizaciones o usuarios avanzados:
 
 ---
 
-## 📂 Archivos Gestionados
+## Archivos Gestionados
 
 El script actúa sobre las rutas estándar de Asterisk, aunque estas pueden ser modificadas durante la ejecución interactiva:
 
@@ -77,7 +77,7 @@ El script actúa sobre las rutas estándar de Asterisk, aunque estas pueden ser 
 
 ---
 
-## ⚙️ Estructura Técnica
+## Estructura Técnica
 
 | Función | Descripción |
 |---|---|
@@ -88,7 +88,7 @@ El script actúa sobre las rutas estándar de Asterisk, aunque estas pueden ser 
 
 ---
 
-## 🤝 Contribución
+## ❤️ Contribución
 Hecho por **pixaisa1** y **Vlad0n4ik**. Siéntete libre de clonar, mejorar o reportar bugs.
 
 > **Nota:** Este script está diseñado para entornos de administración. Se recomienda probar en entornos de desarrollo antes de aplicar cambios masivos en servidores de producción.
