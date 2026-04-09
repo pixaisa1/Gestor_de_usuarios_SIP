@@ -1,0 +1,48 @@
+name: MainToRelease
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'v2.2'
+        required: true
+        type: string
+      release_name:
+        description: 'v2.2'
+        required: true
+        type: string
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag_name }}
+          name: ${{ github.event.inputs.release_name }}
+          body: |
+            La version estable del script.
+
+            ## Instalación
+            1. Descarga el script `Gestor_de_usuarios_SIP.py` en tu servidor Asterisk.
+```bash
+            wget https://raw.githubusercontent.com/pixaisa1/Gestor_de_usuarios_SIP/main/Gestor_de_usuarios_SIP.py
+```
+            2. Asegúrate de tener permisos de ejecución:
+```bash
+            chmod +x Gestor_de_usuarios_SIP.py
+```
+
+            **Full Changelog**: https://github.com/pixaisa1/Gestor_de_usuarios_SIP/commits/sip&pjsip
+          draft: false
+          prerelease: false
+          target_commitish: main
