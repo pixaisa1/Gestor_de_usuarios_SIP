@@ -8,6 +8,7 @@ import subprocess
 import json
 from pathlib import Path
 from datetime import datetime
+
 # Archivo de caché para datos de conexión a la BD
 DB_CACHE_FILE = Path.home() / ".asterisk_manager_cache.json"
 # CONFIGURACIÓN Y CONSTANTES
@@ -27,9 +28,13 @@ DEFAULT_PARAMS = {
     "pjsip": {
         "context": "from-internal",
         "disallow": "all",
-        "allow": "ulaw",
+        "allow": "ulaw,alaw",
+        "direct_media": "no",
+        "rewrite_contact": "yes",
+        "force_rport": "yes",
     }
 }
+
 # HELPERS DE ENTRADA INTERACTIVA
 def preguntar(mensaje: str, por_defecto: str = "") -> str:
     prompt = f"  {mensaje} [{por_defecto}]: " if por_defecto else f"  {mensaje}: "
@@ -66,6 +71,7 @@ def separador(titulo: str = "") -> None:
         print(f"{linea}")
     else:
         print(linea)
+
 # LÓGICA DE SISTEMA Y BACKUP
 def reload_asterisk(modulo: str) -> None:
     if modulo == "pjsip": cmd = "pjsip reload"
@@ -207,7 +213,10 @@ def db_add_user(conn, username: str, password: str, context: str, disallow: str,
             (username,)
         )
         cursor.execute(
-            "INSERT INTO ps_endpoints (id, transport, aors, auth, context, disallow, allow) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+            "INSERT INTO ps_endpoints "
+            "(id, transport, aors, auth, context, disallow, allow, "
+            "direct_media, force_rport, rewrite_contact) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, 'no', 'yes', 'yes')",
             (username, transport, username, username, context, disallow, allow)
         )
         conn.commit()
@@ -226,7 +235,9 @@ def db_edit_user(conn, username: str, password: str, context: str, disallow: str
             (password, username)
         )
         cursor.execute(
-            "UPDATE ps_endpoints SET context = %s, disallow = %s, allow = %s, transport = %s WHERE id = %s",
+            "UPDATE ps_endpoints SET context = %s, disallow = %s, allow = %s, transport = %s, "
+            "direct_media = 'no', rewrite_contact = 'yes', force_rport = 'yes' "
+            "WHERE id = %s",
             (context, disallow, allow, transport, username)
         )
         conn.commit()
@@ -402,10 +413,18 @@ def build_user_blocks(username: str, password: str, protocol: str, **kwargs) -> 
             if key in params: lines.append(f"{key}={params[key]}")
         return "\n".join(lines) + "\n"
     else:
-        ctx, dis, allw = params.get("context"), params.get("disallow"), params.get("allow")
+        ctx       = params.get("context",        "from-internal")
+        dis       = params.get("disallow",        "all")
+        allw      = params.get("allow",           "ulaw,alaw")
+        d_media   = params.get("direct_media",    "no")
+        rw_cont   = params.get("rewrite_contact", "yes")
+        f_rport   = params.get("force_rport",     "yes")
         return (
-            f"[{username}]\ntype=endpoint\ncontext={ctx}\ndisallow={dis}\nallow={allw}\n"
-            f"auth={username}\naors={username}\n\n"
+            f"[{username}]\ntype=endpoint\ncontext={ctx}\n"
+            f"disallow={dis}\nallow={allw}\n"
+            f"auth={username}\naors={username}\n"
+            f"direct_media={d_media}\n"
+            f"rewrite_contact={rw_cont}\nforce_rport={f_rport}\n\n"
             f"[{username}]\ntype=auth\nauth_type=userpass\nusername={username}\npassword={password}\n\n"
             f"[{username}]\ntype=aor\nmax_contacts=1\n"
         )
