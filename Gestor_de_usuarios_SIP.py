@@ -5,7 +5,11 @@ import argparse
 import re
 import getpass
 import subprocess
+import json
+from pathlib import Path
 from datetime import datetime
+# Archivo de caché para datos de conexión a la BD
+DB_CACHE_FILE = Path.home() / ".asterisk_manager_cache.json"
 # CONFIGURACIÓN Y CONSTANTES
 SIP_CONF_PATH = "/etc/asterisk/sip.conf"
 PJSIP_CONF_PATH = "/etc/asterisk/pjsip.conf"
@@ -26,7 +30,6 @@ DEFAULT_PARAMS = {
         "allow": "ulaw",
     }
 }
-
 # HELPERS DE ENTRADA INTERACTIVA
 def preguntar(mensaje: str, por_defecto: str = "") -> str:
     prompt = f"  {mensaje} [{por_defecto}]: " if por_defecto else f"  {mensaje}: "
@@ -63,7 +66,6 @@ def separador(titulo: str = "") -> None:
         print(f"{linea}")
     else:
         print(linea)
-
 # LÓGICA DE SISTEMA Y BACKUP
 def reload_asterisk(modulo: str) -> None:
     if modulo == "pjsip": cmd = "pjsip reload"
@@ -105,7 +107,6 @@ def ensure_file_structure(path: str, tipo: str) -> None:
         except PermissionError:
             print(f"  [✗] Sin permisos para crear {path}. Ejecuta con sudo.")
             sys.exit(1)
-
 # LÓGICA DE BASE DE DATOS
 def conectar_db(host: str, puerto: str, nombre_db: str, usuario: str, password: str):
     """Conecta a la base de datos MySQL/MariaDB y devuelve la conexión."""
@@ -130,15 +131,62 @@ def conectar_db(host: str, puerto: str, nombre_db: str, usuario: str, password: 
         print(f"  [✗] Error al conectar: {e}")
         sys.exit(1)
 
+def cargar_cache_db() -> dict:
+    """Carga los datos de conexión guardados previamente."""
+    try:
+        if DB_CACHE_FILE.exists():
+            with open(DB_CACHE_FILE, "r") as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return {}
+
+def guardar_cache_db(host: str, puerto: str, nombre: str, usuario: str) -> None:
+    """Guarda los datos de conexión (sin contraseña) para futuras sesiones."""
+    try:
+        data = {"host": host, "puerto": puerto, "nombre": nombre, "usuario": usuario}
+        with open(DB_CACHE_FILE, "w") as f:
+            json.dump(data, f, indent=2)
+        # Permisos restrictivos: solo el propietario puede leerlo
+        DB_CACHE_FILE.chmod(0o600)
+    except Exception as e:
+        print(f"  [!] No se pudo guardar el caché: {e}")
+
 def login_db() -> object:
-    """Pide los datos de conexión y devuelve la conexión activa."""
+    """Pide los datos de conexión, reutilizando caché si existe."""
     separador("Conexión a la base de datos")
-    host     = preguntar("Host de la base de datos", "localhost")
-    puerto   = preguntar("Puerto", "3306")
-    nombre   = preguntar("Nombre de la base de datos", "asterisk")
-    usuario  = preguntar("Usuario de la base de datos", "asterisk")
+    cache = cargar_cache_db()
+
+    # Si hay datos en caché, preguntar si reutilizarlos
+    if cache:
+        print(f"  [i] Última conexión guardada:")
+        print(f"      Host     : {cache.get('host')}")
+        print(f"      Puerto   : {cache.get('puerto')}")
+        print(f"      Base     : {cache.get('nombre')}")
+        print(f"      Usuario  : {cache.get('usuario')}")
+
+        if preguntar_si_no("\n¿Conectar con estos datos?"):
+            password = preguntar_password("Contraseña de la base de datos")
+            return conectar_db(
+                cache["host"], cache["puerto"],
+                cache["nombre"], cache["usuario"], password
+            )
+
+    # Introducir datos nuevos
+    host    = preguntar("Host de la base de datos", cache.get("host", "localhost"))
+    puerto  = preguntar("Puerto",                   cache.get("puerto", "3306"))
+    nombre  = preguntar("Nombre de la base de datos", cache.get("nombre", "asterisk"))
+    usuario = preguntar("Usuario de la base de datos", cache.get("usuario", "asterisk"))
     password = preguntar_password("Contraseña de la base de datos")
-    return conectar_db(host, puerto, nombre, usuario, password)
+
+    conn = conectar_db(host, puerto, nombre, usuario, password)
+
+    # Guardar para la próxima vez (sin la contraseña)
+    if preguntar_si_no("¿Guardar estos datos para la próxima vez?"):
+        guardar_cache_db(host, puerto, nombre, usuario)
+        print(f"  [i] Datos guardados en {DB_CACHE_FILE} (contraseña no almacenada).")
+
+    return conn
 
 def db_user_exists(conn, username: str) -> bool:
     cursor = conn.cursor()
@@ -240,7 +288,6 @@ def db_get_user(conn, username: str) -> dict:
         return {}
     finally:
         cursor.close()
-
 # MENÚ BASE DE DATOS
 def menu_base_datos():
     conn = login_db()
@@ -321,7 +368,6 @@ def menu_base_datos():
 
         elif opcion == "5":
             menu_extensiones()
-
 # LÓGICA DE USUARIOS (SIP/PJSIP - ARCHIVOS)
 def user_exists(path: str, username: str) -> bool:
     try:
@@ -396,7 +442,6 @@ def list_users(path: str, protocol: str) -> None:
             print("  No hay usuarios configurados.")
     except FileNotFoundError:
         print(f"  [!] Archivo {path} no encontrado.")
-
 # LÓGICA DE EXTENSIONES (DIALPLAN)
 def remove_extension(path: str, exten: str) -> None:
     if not os.path.exists(path): return
@@ -436,7 +481,6 @@ def list_extensions(path: str) -> None:
         if count == 0: print("  No hay extensiones configuradas.")
         print()
     except FileNotFoundError: print(f"  [!] Archivo {path} no encontrado.")
-
 # MENÚ USUARIOS (ARCHIVOS)
 def menu_usuarios():
     separador("Selección de Protocolo de Usuario")
