@@ -1,98 +1,94 @@
-# Gestor de Usuarios SIP - Asterisk (ver 1.1.2)
+# Gestor Integral de Asterisk v2.2
 
-Este script en Python es una herramienta diseñada para facilitar la administración de extensiones en el archivo de configuración `sip.conf` de Asterisk. Permite realizar operaciones CRUD (Crear, Leer, Actualizar y Borrar) de forma segura y automatizada, ofreciendo tanto una interfaz interactiva como una interfaz de línea de comandos (CLI).
+Una herramienta potente y versátil escrita en Python para la administración de usuarios (PJSIP/SIP) y extensiones (Dialplan) en servidores Asterisk. Permite gestionar configuraciones mediante una interfaz interactiva en consola o a través de comandos directos (CLI).
 
 ---
 
 ## Características Principales
 
-- **Gestión Integral:** Añade, edita, elimina o lista usuarios SIP de forma sencilla.
-- **Copias de Seguridad Automáticas:** Opción para crear un backup del archivo `sip.conf` antes de realizar cualquier modificación destructiva.
-- **Modo Interactivo:** Una guía paso a paso ideal para administradores que prefieren no usar comandos complejos.
-- **Interfaz CLI:** Soporte para argumentos de línea de comandos, perfecto para la automatización de tareas.
-- **Parámetros Personalizables:** Configuración de parámetros SIP como `type`, `context`, `host`, `nat` y `canreinvite`.
-- **Seguridad:** Manejo de contraseñas mediante entrada oculta en consola.
+- **Soporte Dual:** Maneja tanto el stack moderno `chan_pjsip` como el antiguo `chan_sip`.
+- **Gestión de Dialplan:** Crea, edita y elimina extensiones en `extensions.conf` de forma automática.
+- **Seguridad:** Sistema de backups automáticos antes de cualquier modificación crítica.
+- **Recarga Automática:** Ejecuta comandos de `asterisk -rx 'reload'` de forma inteligente tras cada cambio.
+- **Modo Híbrido:** Úsalo mediante menús intuitivos o automatiza tareas con argumentos de línea de comandos.
 
 ---
 
 ## Requisitos
 
-- Python 3.x
-- Permisos de superusuario (`sudo`) para modificar archivos en `/etc/asterisk/`.
+1. Asterisk instalado y configurado en el sistema.
+2. Python 3.x.
+3. Permisos de Sudo (necesarios para editar archivos en `/etc/asterisk/` y ejecutar comandos de recarga).
 
 ---
 
-## Instalación
+## Instalación y Uso
 
-1. Descarga el script `asterisk_add_user.py` en tu servidor Asterisk.
-
-```bash
-wget https://raw.githubusercontent.com/pixaisa1/Gestor_de_usuarios_SIP/main/Gestor_de_usuarios_SIP.py
-```
-
-2. Asegúrate de tener permisos de ejecución:
+Dale permisos de ejecución al script:
 
 ```bash
 chmod +x Gestor_de_usuarios_SIP.py
 ```
 
----
+### 1. Modo Interactivo (Menús)
 
-## Uso
-
-### 1. Modo Interactivo
-
-Simplemente ejecuta el script sin argumentos para entrar en el menú asistido:
+Simplemente ejecuta el script sin parámetros para entrar en la interfaz visual:
 
 ```bash
-sudo python3 Gestor_de_usuarios_SIP.py
+sudo ./Gestor_de_usuarios_SIP.py
 ```
 
-### 2. Modo Línea de Comandos (CLI)
+### 2. Modo CLI (Comandos Directos)
 
-El script soporta varios comandos para operaciones rápidas:
+Ideal para automatizaciones o usuarios avanzados:
 
-**Añadir un usuario:**
-```bash
-sudo python3 Gestor_de_usuarios_SIP.py add "usuario1" "password123" --context "ventas"
-```
+- **Añadir Usuario:**
+  ```bash
+  sudo ./Gestor_de_usuarios_SIP.py add-user 101 Secreto123 --protocol pjsip
+  ```
 
-**Editar un usuario existente:**
-```bash
-sudo python3 Gestor_de_usuarios_SIP.py edit "usuario1" "nueva_password" --nat "yes"
-```
+- **Asignar Extensión:**
+  ```bash
+  sudo ./Gestor_de_usuarios_SIP.py add-exten 101 usuario101 --context from-internal
+  ```
 
-**Listar todos los usuarios:**
-```bash
-python3 Gestor_de_usuarios_SIP.py list
-```
+- **Listar Usuarios:**
+  ```bash
+  sudo ./Gestor_de_usuarios_SIP.py list-users --protocol pjsip
+  ```
 
-**Eliminar un usuario:**
-```bash
-sudo python3 Gestor_de_usuarios_SIP.py delete "usuario1"
-```
+- **Eliminar Extensión:**
+  ```bash
+  sudo ./Gestor_de_usuarios_SIP.py del-exten 101
+  ```
 
 ---
 
-## Configuración por Defecto
+## Archivos Gestionados
 
-El script utiliza los siguientes valores por defecto para los nuevos usuarios, a menos que se especifique lo contrario:
+El script actúa sobre las rutas estándar de Asterisk, aunque estas pueden ser modificadas durante la ejecución interactiva:
 
-| Parámetro | Valor por defecto |
-|-----------|------------------|
-| Archivo | `/etc/asterisk/sip.conf` |
-| Contexto | `empleado` |
-| Host | `dynamic` |
-| NAT | `force_rport,comedia` |
-| Canreinvite | `no` |
+- `/etc/asterisk/pjsip.conf`
+- `/etc/asterisk/sip.conf`
+- `/etc/asterisk/extensions.conf`
 
----
-
-## Autor
-
-**pixaisa1**
-**Vlad0n4ik**
+> [!IMPORTANT]
+> Los backups se guardan con el sufijo `.bak.YYYYMMDD_HHMMSS` en el mismo directorio que el archivo original.
 
 ---
 
-> ⚠️ **Nota:** Se recomienda encarecidamente realizar una copia de seguridad manual de sus archivos de configuración antes de utilizar herramientas de edición automatizada en entornos de producción.
+## Estructura Técnica
+
+| Función | Descripción |
+|---|---|
+| `backup_conf` | Crea copias de seguridad con timestamp. |
+| `reload_asterisk` | Detecta el cambio y aplica `sip/pjsip/dialplan reload`. |
+| `ensure_file_structure` | Crea los archivos de configuración con cabeceras básicas si no existen. |
+| `build_user_blocks` | Genera los bloques de texto según el estándar del protocolo elegido. |
+
+---
+
+## ❤️ Contribución
+Hecho por **pixaisa1** y **Vlad0n4ik**. Siéntete libre de clonar, mejorar o reportar bugs.
+
+> **Nota:** Este script está diseñado para entornos de administración. Se recomienda probar en entornos de desarrollo antes de aplicar cambios masivos en servidores de producción.
