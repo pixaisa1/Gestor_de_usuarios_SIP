@@ -11,7 +11,10 @@ from datetime import datetime
 
 # Archivo de caché para datos de conexión a la BD
 DB_CACHE_FILE = Path.home() / ".asterisk_manager_cache.json"
+
+# ─────────────────────────────────────────────
 # CONFIGURACIÓN Y CONSTANTES
+# ─────────────────────────────────────────────
 SIP_CONF_PATH = "/etc/asterisk/sip.conf"
 PJSIP_CONF_PATH = "/etc/asterisk/pjsip.conf"
 EXTENSIONS_CONF_PATH = "/etc/asterisk/extensions.conf"
@@ -35,7 +38,9 @@ DEFAULT_PARAMS = {
     }
 }
 
+# ─────────────────────────────────────────────
 # HELPERS DE ENTRADA INTERACTIVA
+# ─────────────────────────────────────────────
 def preguntar(mensaje: str, por_defecto: str = "") -> str:
     prompt = f"  {mensaje} [{por_defecto}]: " if por_defecto else f"  {mensaje}: "
     while True:
@@ -72,7 +77,9 @@ def separador(titulo: str = "") -> None:
     else:
         print(linea)
 
+# ─────────────────────────────────────────────
 # LÓGICA DE SISTEMA Y BACKUP
+# ─────────────────────────────────────────────
 def reload_asterisk(modulo: str) -> None:
     if modulo == "pjsip": cmd = "pjsip reload"
     elif modulo == "sip": cmd = "sip reload"
@@ -113,7 +120,10 @@ def ensure_file_structure(path: str, tipo: str) -> None:
         except PermissionError:
             print(f"  [✗] Sin permisos para crear {path}. Ejecuta con sudo.")
             sys.exit(1)
+
+# ─────────────────────────────────────────────
 # LÓGICA DE BASE DE DATOS
+# ─────────────────────────────────────────────
 def conectar_db(host: str, puerto: str, nombre_db: str, usuario: str, password: str):
     """Conecta a la base de datos MySQL/MariaDB y devuelve la conexión."""
     try:
@@ -299,7 +309,10 @@ def db_get_user(conn, username: str) -> dict:
         return {}
     finally:
         cursor.close()
+
+# ─────────────────────────────────────────────
 # MENÚ BASE DE DATOS
+# ─────────────────────────────────────────────
 def menu_base_datos():
     conn = login_db()
 
@@ -369,9 +382,14 @@ def menu_base_datos():
             if preguntar_si_no("\n¿Asignar también un número de extensión a este usuario?"):
                 exten    = preguntar("Número de extensión (ej. 100)")
                 ext_path = preguntar("Ruta al extensions.conf", EXTENSIONS_CONF_PATH)
+                interval_str = preguntar("Tiempo de llamada en segundos (interval)", "30")
+                interval = int(interval_str) if interval_str.isdigit() else 30
+                musica = ""
+                if preguntar_si_no("¿Añadir música de espera?", False):
+                    musica = preguntar("Nombre de la clase de música (ej. musiquita)")
                 if preguntar_si_no("¿Backup del extensions.conf antes de guardar?"):
                     backup_conf(ext_path)
-                add_extension(ext_path, context, exten, username, "pjsip")
+                add_extension(ext_path, context, exten, username, "pjsip", interval, musica)
                 print(f"  [✓] Extensión {exten} asignada a PJSIP/{username}.")
                 reload_asterisk("dialplan")
 
@@ -379,7 +397,10 @@ def menu_base_datos():
 
         elif opcion == "5":
             menu_extensiones()
+
+# ─────────────────────────────────────────────
 # LÓGICA DE USUARIOS (SIP/PJSIP - ARCHIVOS)
+# ─────────────────────────────────────────────
 def user_exists(path: str, username: str) -> bool:
     try:
         with open(path, "r") as f: return bool(re.search(rf"^\[{re.escape(username)}\]", f.read(), re.MULTILINE))
@@ -461,26 +482,52 @@ def list_users(path: str, protocol: str) -> None:
             print("  No hay usuarios configurados.")
     except FileNotFoundError:
         print(f"  [!] Archivo {path} no encontrado.")
+
+# ─────────────────────────────────────────────
 # LÓGICA DE EXTENSIONES (DIALPLAN)
+# ─────────────────────────────────────────────
 def remove_extension(path: str, exten: str) -> None:
+    """Elimina el bloque completo de una extension incluyendo lineas same=>."""
     if not os.path.exists(path): return
     with open(path, "r") as f: lines = f.readlines()
-    with open(path, "w") as f:
-        for line in lines:
-            if line.strip().startswith(f"exten => {exten},") or line.strip().startswith(f"exten=>{exten},"): continue
-            f.write(line)
+    new_lines = []
+    skip = False
+    for line in lines:
+        stripped = line.strip()
+        if stripped == f"; --- Extension {exten} ---":
+            skip = True
+            continue
+        if stripped.startswith(f"exten => {exten},") or stripped.startswith(f"exten=>{exten},"):
+            skip = True
+        if skip and (stripped.startswith("same =>") or stripped == f"; --- Extension {exten} ---"):
+            continue
+        if skip and not stripped.startswith("same =>"):
+            skip = False
+        if not skip:
+            new_lines.append(line)
+    with open(path, "w") as f: f.writelines(new_lines)
 
-def add_extension(path: str, context: str, exten: str, endpoint: str, protocol: str) -> None:
+def add_extension(path: str, context: str, exten: str, endpoint: str, protocol: str,
+                  interval: int = 30, musica: str = "") -> None:
     remove_extension(path, exten)
     ensure_file_structure(path, "extensions")
     with open(path, "r") as f: content = f.read()
-    line1 = f"exten => {exten},1,Dial({protocol.upper()}/{endpoint},30)"
-    line2 = f"exten => {exten},2,Hangup()"
+
+    # Construir el bloque con el nuevo formato
+    dial_opts = f"m({musica})" if musica else ""
+    bloque = (
+        f"; --- Extension {exten} ---\n"
+        f"exten => {exten},1,NoOp(Llamando a {endpoint}" + (f" - Musica personalizada" if musica else "") + f")\n"
+        f"same => n,Answer()\n"
+        f"same => n,Dial({protocol.upper()}/{endpoint},{interval}" + (f",{dial_opts}" if dial_opts else "") + f")\n"
+        f"same => n,Hangup()\n"
+    )
+
     if f"[{context}]" in content:
-        content = content.replace(f"[{context}]", f"[{context}]\n{line1}\n{line2}", 1)
+        content = content.replace(f"[{context}]", f"[{context}]\n{bloque}", 1)
         with open(path, "w") as f: f.write(content)
     else:
-        with open(path, "a") as f: f.write(f"\n[{context}]\n{line1}\n{line2}\n")
+        with open(path, "a") as f: f.write(f"\n[{context}]\n{bloque}")
 
 def list_extensions(path: str) -> None:
     try:
@@ -500,7 +547,10 @@ def list_extensions(path: str) -> None:
         if count == 0: print("  No hay extensiones configuradas.")
         print()
     except FileNotFoundError: print(f"  [!] Archivo {path} no encontrado.")
+
+# ─────────────────────────────────────────────
 # MENÚ USUARIOS (ARCHIVOS)
+# ─────────────────────────────────────────────
 def menu_usuarios():
     separador("Selección de Protocolo de Usuario")
     print("  1) PJSIP (Recomendado/Moderno)")
@@ -570,7 +620,10 @@ def menu_usuarios():
                 print(f"  [✓] Usuario '{username}' guardado.")
                 reload_asterisk(protocolo)
             except PermissionError: print(f"  [✗] Sin permisos. Usa sudo.")
+
+# ─────────────────────────────────────────────
 # MENÚ EXTENSIONES
+# ─────────────────────────────────────────────
 def menu_extensiones():
     conf_path = preguntar("Ruta al archivo extensions.conf", EXTENSIONS_CONF_PATH)
     while True:
@@ -601,16 +654,24 @@ def menu_extensiones():
             endpoint = preguntar("Nombre del usuario/endpoint al que llamará (ej. pedro)")
             proto    = preguntar("¿Protocolo del usuario? (PJSIP o SIP)", "PJSIP")
             contexto = preguntar("Contexto donde ubicarla", "from-internal")
+            interval_str = preguntar("Tiempo de llamada en segundos (interval)", "30")
+            interval = int(interval_str) if interval_str.isdigit() else 30
+            musica = ""
+            if preguntar_si_no("¿Añadir música de espera?", False):
+                musica = preguntar("Nombre de la clase de música (ej. musiquita)")
 
             if not preguntar_si_no("\n¿Confirmar y guardar?"): continue
             if preguntar_si_no("¿Backup antes de guardar?"): backup_conf(conf_path)
 
             try:
-                add_extension(conf_path, contexto, exten, endpoint, proto)
+                add_extension(conf_path, contexto, exten, endpoint, proto, interval, musica)
                 print(f"  [✓] Extensión {exten} asignada a {proto.upper()}/{endpoint}.")
                 reload_asterisk("dialplan")
             except PermissionError: print("  [✗] Sin permisos. Usa sudo.")
+
+# ─────────────────────────────────────────────
 # MODO INTERACTIVO - MENÚ PRINCIPAL
+# ─────────────────────────────────────────────
 def modo_interactivo():
     print("\n╔══════════════════════════════════════════════╗")
     print("║      Gestor Integral de Asterisk v3.0        ║")
@@ -647,7 +708,10 @@ def modo_interactivo():
             sys.exit(0)
         else:
             print("  [!] Opción no válida.")
+
+# ─────────────────────────────────────────────
 # MODO CLI (Avanzado)
+# ─────────────────────────────────────────────
 def parse_args():
     base_parser = argparse.ArgumentParser(add_help=False)
     base_parser.add_argument("--no-backup", action="store_true")
